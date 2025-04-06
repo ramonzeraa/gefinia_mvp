@@ -28,7 +28,7 @@ def check_login(email, password):
     if conn is None:
         return None
     cur = conn.cursor()
-    cur.execute("SELECT id, name, email , password FROM users WHERE email = %s;", (email,))
+    cur.execute("SELECT id, name, email , password_hash FROM users WHERE email = %s;", (email,))
     user = cur.fetchone()
     cur.close()
     conn.close()
@@ -101,31 +101,38 @@ def register():
     data = request.get_json()
     name = data.get('name')
     email = data.get('email')
-    password = data.get('password') 
-    if not all ([name, email, password]):
+    password = data.get('password')
+    print(f"Dados recebidos para registro: name={name}, email={email}, password={'*' * len(password) if password else None}")
+    
+    if not all([name, email, password]):
+        print("Campos obrigatórios ausentes")
         return Response(json.dumps({"error": "Nome, email e senha são obrigatórios"}, ensure_ascii=False), mimetype='application/json'), 400
     
-    hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+    hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     conn = get_db_connection()
     if conn is None:
+        print("Falha na conexão com o banco")
         return Response(json.dumps({"error": "Falha na conexão com o banco"}, ensure_ascii=False), mimetype='application/json'), 500
     cur = conn.cursor()
     try:
         cur.execute(
-            "INSERT INTO users (name, email, password) VALUES (%s, %s, %s) RETURNING id;",
-            (name, email, hashed_password.decode('utf-8'))
+            "INSERT INTO users (name, email, password_hash, is_premium, created_at) VALUES (%s, %s, %s, %s, %s) RETURNING id;",
+            (name, email, hashed_password, False, 'NOW()')
         )
         user_id = cur.fetchone()[0]
         conn.commit()
         print(f"Usuário registrado: {user_id}")
         return Response(json.dumps({"message": "Usuário registrado com sucesso", "id": user_id}, ensure_ascii=False), mimetype='application/json'), 201
-    except psycopg2.IntegrityError:
+    except psycopg2.IntegrityError as e:
         conn.rollback()
-        return Response(json.dumps({"error": "Email já registrado"}, ensure_ascii=False), mimetype='application/json'), 409
+        print(f"Erro de integridade ao registrar usuário: {e}")
+        if 'email' in str(e).lower():
+            return Response(json.dumps({"error": "Email já registrado"}, ensure_ascii=False), mimetype='application/json'), 409
+        return Response(json.dumps({"error": "Erro de integridade no banco"}, ensure_ascii=False), mimetype='application/json'), 500
     except Exception as e:
         conn.rollback()
-        print(f"Erro ao registrar usuário: {e}")
-        return Response(json.dumps({"error": "Erro ao registrar usuário"}, ensure_ascii=False), mimetype='application/json'), 500
+        print(f"Erro inesperado ao registrar usuário: {e}")
+        return Response(json.dumps({"error": f"Erro ao registrar usuário: {str(e)}"}, ensure_ascii=False), mimetype='application/json'), 500
     finally:
         cur.close()
         conn.close()
@@ -400,30 +407,37 @@ def get_financial_score(user_id):
     if conn is None:
         return Response(json.dumps({"error": "Falha na conexão com o banco"}, ensure_ascii=False), mimetype='application/json'), 500
     cur = conn.cursor()
-    # total dos ganhos
-    cur.execute("SELECT SUM(amount) FROM gains WHERE user_id = %s;", (user_id,))
-    total_gains = cur.fetchone()[0] or 0
-    # total das despesas
-    cur.execute("SELECT SUM(amount) FROM expenses WHERE user_id = %s;", (user_id,))
-    total_expenses = cur.fetchone()[0] or 0
-    cur.close()
-    conn.close()
-    saldo = float(total_gains) - float(total_expenses)
-    score = 100 - (float(total_expenses) / float(total_gains) * 100) if total_gains > 0 else 0
-    result = {
-        'saldo': saldo,
-        'score': max(0, min(100, score))  # score entre 0 e 100 (mediante mudanças)
-    }
-    # gains = [g for g in gains_data if str['user_id'] == user_id]
-    # expenses = [e for e in expenses_data if str(e['user_id']) == user_id]
-    # total_gains = sum(g['amount'] for g in gains)
-    # total_expenses = sum(e['amount'] for e in expenses)
-    # saldo = total_gains - total_expenses
-    # score = (saldo / total_gains * 100) if total_gains > 0 else 0
-    # return jsonify({'score': score, 'saldo': saldo})
-    print(f"Financial score para user_id {user_id}: {result}")
-    return Response(json.dumps(result, ensure_ascii=False), mimetype='application/json')
+    try:
+        cur.execute("""
+            SELECT COALESCE(SUM(amount), 0)
+            FROM gains
+            WHERE user_id = %s
+            AND DATE_TRUNC('month', gain_date) = DATE_TRUNC('month', CURRENT_DATE);
+        """, (user_id,))
+        total_gains = cur.fetchone()[0] or 0
 
+        cur.execute("""
+            SELECT COALESCE(SUM(amount), 0)
+            FROM expenses
+            WHERE user_id = %s
+            AND DATE_TRUNC('month', expense_date) = DATE_TRUNC('month', CURRENT_DATE);
+        """, (user_id,))
+        total_expenses = cur.fetchone()[0] or 0
+
+        score = 100 - (float(total_expenses) / float(total_gains) * 100) if total_gains > 0 else 0
+        result = {
+            "total_gains": float(total_gains),
+            "total_expenses": float(total_expenses),
+            "financial_score": max(0, min(100, score))  # Score entre 0 e 100
+        }
+        print(f"Financial score para user_id {user_id}: {result}")
+        return Response(json.dumps(result, ensure_ascii=False), mimetype='application/json'), 200
+    except Exception as e:
+        print(f"Erro ao buscar score financeiro: {e}")
+        return Response(json.dumps({"error": "Erro ao buscar score financeiro"}, ensure_ascii=False), mimetype='application/json'), 500
+    finally:
+        cur.close()
+        conn.close()
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
