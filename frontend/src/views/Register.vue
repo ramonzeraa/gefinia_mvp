@@ -1,4 +1,5 @@
 <template>
+  <navbar />
     <div class="login-container">
       <h1>Cadastro</h1>
       <form @submit.prevent="handleRegister">
@@ -34,16 +35,21 @@
     methods: {
       async handleRegister() {
         try {
-          await axios.post('http://localhost:5000/api/register', {
+          const response = await axios.post('http://localhost:5000/api/register', {
             name: this.name,
             email: this.email,
             password: this.password
           });
+          console.log('Usuário registrado com sucesso', response.data);
           alert('Usuário registrado com sucesso! Faça login para continuar.');
           this.$router.push('/login');
         } catch (error) {
           console.error('Erro ao cadastrar:', error);
-          alert('Erro ao cadastrar. Email já registrado ou problema no servidor.');
+          if (error.response && error.response.status === 409) {
+            alert('Email já registrado. Tente outro email.');
+          } else { 
+            alert('Erro ao cadastrar:' + (error.response?.data?.error || 'Erro desconhecido'));
+          }
         }
       }
     }
