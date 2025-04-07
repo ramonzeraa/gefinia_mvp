@@ -3,11 +3,11 @@
     <div class="profile-container">
       <h1>Perfil de {{ user.name }}</h1>
       <h2>Seu Score Financeiro: {{ financialScore.score.toFixed(2) }}%</h2>
-      <p>Saldo: R${{ financialScore.saldo }}</p>
+      <p>Saldo Atual: R${{ financialScore.saldo }}</p>
       <h3>Resumo financeiro:</h3>
       <p>Total de ganhos: R$ {{ totalGains.toFixed(2) }}</p>
       <p>Total de despesas: R$ {{ totalExpenses.toFixed(2) }}</p>
-      <h3>Grafico de gastos (Mockup)</h3>
+      <h3>Grafico geral de gastos (Mockup)</h3>
       <div style="width: 400px; height: 200px; margin: 0 auto;">
         <canvas ref="chart"></canvas>
       </div>
@@ -23,7 +23,8 @@
     </form>
 
     <h3>Meus Ganhos</h3>
-    <ul>
+    <div v-if="loadingGains" class="loading">Carregando ganhos...</div>
+    <ul v-else>
       <li v-for="gain in gains" :key="gain.id">
         {{ gain.description }} - R${{ gain.amount.toFixed(2) }} ({{ gain.source }}, {{ gain.date }})
         <button @click="editGain(gain)">Editar</button>
@@ -54,10 +55,11 @@
       </select>
       <input v-model="newExpense.date" type="date" required />
       <button type="submit">Adicionar Despesa</button>
-    </form>
+    </form> 
 
     <h3>Minhas Despesas</h3>
-    <ul>
+    <div v-if="loadingGains" class="loading">Carregando ganhos...</div>
+    <ul v-else>
       <li v-for="expense in expenses" :key="expense.id">
         {{ expense.description }} - R${{ expense.amount.toFixed(2) }} ({{ getCategoryName(expense.category_id) }}, {{ expense.date }})
         <button @click="editExpense(expense)">Editar</button>
@@ -100,7 +102,7 @@
       </li>
     </ul>
       
-      <button @click="goBack">Voltar ao Dashboard</button>
+      <button @click="goBack">Vá para o ao Dashboard</button>
     </div>
   </template>
   
@@ -157,7 +159,9 @@ export default {
       newGain: { description: '', amount: 0, source: '', date: '' },
       newExpense: { description: '', amount: 0, category_id: 1, date: '' },
       editingGain: null,
-      editingExpense: null
+      editingExpense: null,
+      loadingGains: false,
+      loadingExpenses: false
     };
   },
   methods: {
@@ -177,15 +181,19 @@ export default {
         if (userResponse.data.length > 0) {
           this.user = userResponse.data.find(u => u.id == userId) || userResponse.data[0];
 
+          this.loadingGains = true;
           // Carregar ganhos
           const gainsResponse = await axios.get(`http://localhost:5000/api/gains/${this.user.id}`, { headers: this.getHeaders() });
           this.gains = gainsResponse.data;
           console.log('Ganhos carregados:', this.gains);
+          this.loadingGains = false;
 
+          this.loadingExpenses = true;
           // Carregar despesas
           const expensesResponse = await axios.get(`http://localhost:5000/api/expenses/${this.user.id}`, { headers: this.getHeaders() });
           this.expenses = expensesResponse.data;
           console.log('Expenses carregados:', this.expenses);
+          this.loadingExpenses = false;
 
           // Carregar categorias
           const categoriesResponse = await axios.get('http://localhost:5000/api/categories', { headers: this.getHeaders() });
@@ -222,6 +230,8 @@ export default {
         this.financialScore = { score: 0, saldo: 0 };
         this.totalGains = 0;
         this.totalExpenses = 0;
+        this.loadingExpenses = false;
+        this.loadingGains = false;
       }
     },
     updateSuggestions() {
@@ -315,14 +325,13 @@ export default {
     },
     async addGain() {
       try {
-        const response = await axios.post('http://localhost:5000/api/gains', {
+        await axios.post('http://localhost:5000/api/gains', {
           user_id: this.user.id,
           description: this.newGain.description,
           amount: this.newGain.amount,
           source: this.newGain.source,
           date: this.newGain.date
         }, { headers: this.getHeaders() });
-        this.gains.push(response.data);
         this.newGain = { description: '', amount: 0, source: '', date: '' };
         this.fetchData(); // Recarregar dados pra atualizar o gráfico e totais
       } catch (error) {
@@ -332,14 +341,13 @@ export default {
     },
     async addExpense() {
       try {
-        const response = await axios.post('http://localhost:5000/api/expenses', {
+        await axios.post('http://localhost:5000/api/expenses', {
           user_id: this.user.id,
           description: this.newExpense.description,
           amount: this.newExpense.amount,
           category_id: this.newExpense.category_id,
           date: this.newExpense.date
         }, { headers: this.getHeaders() });
-        this.expenses.push(response.data);
         this.newExpense = { description: '', amount: 0, category_id: 1, date: '' };
         this.fetchData(); // Recarregar dados
       } catch (error) {
@@ -471,6 +479,12 @@ li {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.loading {
+  text-align: center;
+  padding: 10px;
+  color: #34495e;
 }
 
 form {
