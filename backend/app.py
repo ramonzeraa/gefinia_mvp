@@ -161,28 +161,52 @@ def get_gains(user_id):
     if conn is None:
         return Response(json.dumps({"error": "Falha na conexão com o banco"}, ensure_ascii=False), mimetype='application/json'), 500
     cur = conn.cursor()
-    cur.execute("SELECT id, description, amount, source, date FROM gains WHERE user_id = %s;", (user_id,))
-    gains = cur.fetchall()
-    print(f"Dados brutos do banco (gains): {gains}")
-    cur.close()
-    conn.close()
-    if not gains:
-        print("Nenhum ganho encontrado para o user_id fornecido.")
-        return Response(json.dumps([], ensure_ascii=False), mimetype='application/json')
+
+    # Obter parâmetros de mês e ano
+    month = request.args.get('month', type=int)
+    year = request.args.get('year', type=int)
+
     try:
-        result = [{
-            'id': g[0],
-            'description': g[1],
-            'amount': float(g[2]),
-            'source': g[3],
-            'date': str(g[4])
+        if month is not None and year is not None:
+            # Validar month e year
+            if month < 1 or month > 12:
+                return Response(json.dumps({"error": "Mês inválido (deve ser entre 1 e 12)"}, ensure_ascii=False), mimetype='application/json'), 400
+            if year < 2000 or year > 2100:
+                return Response(json.dumps({"error": "Ano inválido"}, ensure_ascii=False), mimetype='application/json'), 400
+
+            cur.execute("""
+                SELECT id, description, amount, source, date
+                FROM gains
+                WHERE user_id = %s
+                AND EXTRACT(MONTH FROM date) = %s
+                AND EXTRACT(YEAR FROM date) = %s;
+            """, (user_id, month, year))
+        else:
+            cur.execute("SELECT id, description, amount, source, date FROM gains WHERE user_id = %s;", (user_id,))
+        gains = cur.fetchall()
+        print(f"Dados brutos do banco (gains): {gains}")
+        if not gains:
+            print("Nenhum ganho encontrado para o user_id fornecido.")
+            return Response(json.dumps([], ensure_ascii=False), mimetype='application/json')
+        try:
+            result = [{
+                'id': g[0],
+                'description': g[1],
+                'amount': float(g[2]),
+                'source': g[3],
+                'date': str(g[4])
             } for g in gains]
-        print(f"Dados formatados para JSON (gains): {result}")
-        return Response(json.dumps(result, ensure_ascii=False), mimetype='application/json')
-    except IndexError as e:
-        print(f"Erro ao formatar dados: {e}")
-        return jsonify({"error": "Erro ao processar os dados do banco"}), 500
+            print(f"Dados formatados para JSON (gains): {result}")
+            return Response(json.dumps(result, ensure_ascii=False), mimetype='application/json')
+        except IndexError as e:
+            print(f"Erro ao formatar dados: {e}")
+            return jsonify({"error": "Erro ao processar os dados do banco"}), 500
+    finally:
+        cur.close()
+        conn.close()
     
+
+
 @app.route('/api/expenses/<int:user_id>', methods=['GET'])
 @require_login
 def get_expenses(user_id):
@@ -190,29 +214,54 @@ def get_expenses(user_id):
     if conn is None:
         return Response(json.dumps({"error": "Falha na conexão com o banco"}, ensure_ascii=False), mimetype='application/json'), 500
     cur = conn.cursor()
-    cur.execute("SELECT id, user_id, description, category_id, amount, date FROM expenses WHERE user_id = %s;", (user_id,))
-    expenses = cur.fetchall()
-    print(f"Dados brutos do banco (expenses): {expenses}")
-    cur.close()
-    conn.close()
-    if not expenses:
-        print("Nenhuma despesa encontrada para o user_id fornecido.")
-        return Response(json.dumps([], ensure_ascii=False), mimetype='application/json')
+
+    # Obter parâmetros de mês e ano
+    month = request.args.get('month', type=int)
+    year = request.args.get('year', type=int)
+
     try:
-        result = [{
-            'id': e[0],
-            'user_id': e[1],
-            'description': e[2],
-            'category_id': e[3],  # category_id é a 4ª coluna (índice 3)
-            'amount': float(e[4]),  # amount é a 5ª coluna (índice 4)
-            'date': str(e[5])  # date é a 6ª coluna (índice 5)
-        } for e in expenses]
-        print(f"Dados formatados para JSON (expenses): {result}")
-        return Response(json.dumps(result, ensure_ascii=False), mimetype='application/json')
-    except IndexError as e:
-        print(f"Erro ao formatar dados: {e}")
-        return Response(json.dumps({"error": "Erro ao processar os dados do banco"}, ensure_ascii=False), mimetype='application/json'), 500
-    
+        if month is not None and year is not None:
+            # Validar month e year
+            if month < 1 or month > 12:
+                return Response(json.dumps({"error": "Mês inválido (deve ser entre 1 e 12)"}, ensure_ascii=False), mimetype='application/json'), 400
+            if year < 2000 or year > 2100:
+                return Response(json.dumps({"error": "Ano inválido"}, ensure_ascii=False), mimetype='application/json'), 400
+
+            cur.execute("""
+                SELECT id, user_id, description, category_id, amount, date
+                FROM expenses
+                WHERE user_id = %s
+                AND EXTRACT(MONTH FROM date) = %s
+                AND EXTRACT(YEAR FROM date) = %s;
+            """, (user_id, month, year))
+        else:
+            cur.execute("SELECT id, user_id, description, category_id, amount, date FROM expenses WHERE user_id = %s;", (user_id,))
+
+        expenses = cur.fetchall()
+        print(f"Dados brutos do banco (expenses): {expenses}")
+        cur.close()
+        conn.close()
+        if not expenses:
+            print("Nenhuma despesa encontrada para o user_id fornecido.")
+            return Response(json.dumps([], ensure_ascii=False), mimetype='application/json')
+        try:
+            result = [{
+                'id': e[0],
+                'user_id': e[1],
+                'description': e[2],
+                'category_id': e[3],
+                'amount': float(e[4]),
+                'date': str(e[5])
+            } for e in expenses]
+            print(f"Dados formatados para JSON (expenses): {result}")
+            return Response(json.dumps(result, ensure_ascii=False), mimetype='application/json')
+        except IndexError as e:
+            print(f"Erro ao formatar dados: {e}")
+            return Response(json.dumps({"error": "Erro ao processar os dados do banco"}, ensure_ascii=False), mimetype='application/json'), 500
+    finally:
+        cur.close()
+        conn.close()
+        
 @app.route('/api/gains', methods=['POST'])
 @require_login
 def add_gain():
@@ -408,29 +457,51 @@ def get_financial_score(user_id):
         return Response(json.dumps({"error": "Falha na conexão com o banco"}, ensure_ascii=False), mimetype='application/json'), 500
     cur = conn.cursor()
     try:
+        # Obter parâmetros de mês e ano da query string
+        month = request.args.get('month', type=int)
+        year = request.args.get('year', type=int)
+
+        # Se month e year não forem fornecidos, irá usar o mês e ano atuais
+        if month is None or year is None:
+            cur.execute("SELECT EXTRACT(MONTH FROM CURRENT_DATE), EXTRACT(YEAR FROM CURRENT_DATE);")
+            current_month, current_year = cur.fetchone()
+            month = month if month is not None else int(current_month)
+            year = year if year is not None else int(current_year)
+
+        # Validacao de month e year
+        if month < 1 or month > 12:
+            return Response(json.dumps({"error": "Mês inválido (deve ser entre 1 e 12)"}, ensure_ascii=False), mimetype='application/json'), 400
+        if year < 2000 or year > 2100:  # Limite arbitrário
+            return Response(json.dumps({"error": "Ano inválido"}, ensure_ascii=False), mimetype='application/json'), 400
+
+        # Calcular total de ganhos e despesas pro período
         cur.execute("""
             SELECT COALESCE(SUM(amount), 0)
             FROM gains
             WHERE user_id = %s
-            AND DATE_TRUNC('month', gain_date) = DATE_TRUNC('month', CURRENT_DATE);
-        """, (user_id,))
+            AND EXTRACT(MONTH FROM date) = %s
+            AND EXTRACT(YEAR FROM date) = %s;
+        """, (user_id, month, year))
         total_gains = cur.fetchone()[0] or 0
 
         cur.execute("""
             SELECT COALESCE(SUM(amount), 0)
             FROM expenses
             WHERE user_id = %s
-            AND DATE_TRUNC('month', expense_date) = DATE_TRUNC('month', CURRENT_DATE);
-        """, (user_id,))
+            AND EXTRACT(MONTH FROM date) = %s
+            AND EXTRACT(YEAR FROM date) = %s;
+        """, (user_id, month, year))
         total_expenses = cur.fetchone()[0] or 0
 
         score = 100 - (float(total_expenses) / float(total_gains) * 100) if total_gains > 0 else 0
         result = {
             "total_gains": float(total_gains),
             "total_expenses": float(total_expenses),
-            "financial_score": max(0, min(100, score))  # Score entre 0 e 100
+            "financial_score": max(0, min(100, score)),
+            "month": month,
+            "year": year
         }
-        print(f"Financial score para user_id {user_id}: {result}")
+        print(f"Financial score para user_id {user_id} (mês {month}/{year}): {result}")
         return Response(json.dumps(result, ensure_ascii=False), mimetype='application/json'), 200
     except Exception as e:
         print(f"Erro ao buscar score financeiro: {e}")
